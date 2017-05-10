@@ -1,232 +1,194 @@
-/* 
-   This code should be pasted within the files where this function is needed.
-   This function will not create any code conflicts.
-
-   The function call is similar to printf: ardprintf("Test %d %s", 25, "string");
-
-   To print the '%' character, use '%%'
-
-   This code was first posted on http://arduino.stackexchange.com/a/201
-   */
-/*
-#ifndef ARDPRINTF
-#define ARDPRINTF
-#define ARDBUFFER 16 //Buffer for storing intermediate strings. Performance may vary depending on size.
-#include <stdarg.h>
-#include <Arduino.h> //To allow function to run from any file in a project
-
-int ardprintf(char *str, ...) //Variadic Function
-{
-  int i, count=0, j=0, flag=0;
-  char temp[ARDBUFFER+1];
-  for(i=0; str[i]!='\0';i++)  if(str[i]=='%')  count++; //Evaluate number of arguments required to be printed
-
-  va_list argv;
-  va_start(argv, count);
-  for(i=0,j=0; str[i]!='\0';i++) //Iterate over formatting string
-  {
-    if(str[i]=='%')
-    {
-      //Clear buffer
-      temp[j] = '\0'; 
-      Serial.print(temp);
-      j=0;
-      temp[0] = '\0';
-
-      //Process argument
-      switch(str[++i])
-      {
-	case 'd': Serial.print(va_arg(argv, int));
-		  break;
-	case 'l': Serial.print(va_arg(argv, long));
-		  break;
-	case 'f': Serial.print(va_arg(argv, double));
-		  break;
-	case 'c': Serial.print((char)va_arg(argv, int));
-		  break;
-	case 's': Serial.print(va_arg(argv, char *));
-		  break;
-	default:  ;
-      };
-    }
-    else 
-    {
-      //Add to buffer
-      temp[j] = str[i];
-      j = (j+1)%ARDBUFFER;
-      if(j==0)  //If buffer is full, empty buffer.
-      {
-	temp[ARDBUFFER] = '\0';
-	Serial.print(temp);
-	temp[0]='\0';
-      }
-    }
-  };
-
-  Serial.println(); //Print trailing newline
-  return count + 1; //Return number of arguments detected
-}
-
-#undef ARDBUFFER
-#endif
-*/
-
-#include <Adafruit_NeoPixel.h>
-#ifdef __AVR__
-  #include <avr/power.h>
-#endif
-
-
 #include <LinkedList.h>
 #include <math.h>
+#include <stdint.h>
+#include <Adafruit_NeoPixel.h>
+#ifdef __AVR__
+	#include <avr/power.h>
+#endif
 
-const int X_PIN = A3;
-const int Y_PIN = A5;
-const int BUTTON_PIN = 9;
-const int POSITION_MAX = 1000;
+// Pins
+#define X_PIN A3
+#define Y_PIN A5
+#define DATA_PIN 5
+#define BUTTON_PIN 9
 
-#define PI 3.14159265;
+#define POSITION_MAX 1000
+#define SEQUENCE_MEMORY_SIZE 1000
+#define PI 3.14159265
 
-//Led Strip values
-#define DATA_PIN   5
-#define NUMPIXELS  50
+// Modes
+#define IDLE 0
+#define RECORDINGING 1
+#define PLAYBACK 2
+
 #define STEP_DELAY 30
+#define NUMPIXELS  50
+
+// Setup Led Strip
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, DATA_PIN, NEO_GRB + NEO_KHZ800);
 
-int prevPin = 0;
-int newPin = 0; 
-int newPinNum = 0;
+/*
+   sequenceMemory
 
-int justPlayed = 0;
+     1 byte             2 bytes(unsigned int)
+ | pin number (0-255) | time duration of pin | ...
 
-int prevButtonState = LOW;
-int newButtonState = LOW;
+*/
 
-int xPosition = 0;
-int yPosition = 0;
-
-LinkedList<int> sequence = LinkedList<int>();
+uint8_t mode = IDLE;
+uint8_t sequenceMemory[SEQUENCE_MEMORY_SIZE] = {0};
+uint16_t *sequenceEnd = (uint16_t*)sequenceMemory;
 
 void setup() {
-
   pinMode(X_PIN, INPUT);
   pinMode(Y_PIN, INPUT);
   pinMode(BUTTON_PIN, INPUT);
-  pixels.begin(); // This initializes the NeoPixel library.
+  pixels.begin();
   Serial.begin(9600);
 }
 
-int getPinForPostition(int xPosition, int yPosition) {
-  int xOrig, yOrig;
-  xOrig = xPosition;
-  yOrig = yPosition;
-  xPosition -= 512;
-  yPosition -= 512;
-  double param, at, atOrig;
-  int pin;
-  param = (float)xPosition/(float)yPosition;
-  at = atan(param) * 180 / PI;
-  atOrig = at;
+void turnOffAllPixels() {
+	for(int i = 0; i < NUMPIXELS; ++i) {
+		pixels.setPixelColor(i, pixels.Color(0,0,0));
+	}
+}
 
-  if(yPosition > 0) {
-    at = 90 - at;
-  }
-  if(xPosition < 0 && yPosition < 0) {
-    at = 270 - at;
-  }
-  if(xPosition > 0 && yPosition < 0) {
-    at = 270 - at;
-  }
+uint8_t getCurrentPin() {
 
-  pin = (int)at/7;
+  int xPosition = analogRead(X_PIN) - 512;
+  int yPosition = analogRead(Y_PIN) - 512;
+
+  float param = (float)xPosition/(float)yPosition;
+  float rad = atan(param);
+  float deg = rad * (180 / PI);
+
+  /*
+	 if(yPosition > 0) {
+	 at = 90 - at;
+	 }
+	 if(xPosition < 0 && yPosition < 0) {
+	 at = 270 - at;
+	 }
+	 if(xPosition > 0 && yPosition < 0) {
+	 at = 270 - at;
+	 }
+	 */
+  float segment = 360.0/(float)NUMPIXELS;
+
+  uint8_t pin = (int)deg/segment;
   //if(pin != prevPin)
-    //ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d AtanOrig %f AtanAdj %f Pin %d", xOrig, yOrig, xPosition, yPosition, atOrig, at, pin);
+  //ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d AtanOrig %f AtanAdj %f Pin %d", xOrig, yOrig, xPosition, yPosition, atOrig, at, pin);
   return pin;
+}
+
+void setPinForDuration(pin, steps) {
+	turnOffAllPixels();
+  pixels.setPixelColor(prevPin, pixels.Color(0,0,0));
+  pixels.setPixelColor(pin, pixels.Color(0,150,0));
+  pixels.show();
+
+  Serial.println("newPIN playback");
+  Serial.println(newPin);
+
+  for(int i = 0; i < steps; i++) {
+	delay(STEP_DELAY);
+  }
 }
 
 void playSequence() {
 
-	while(true) {
-		int i = 0;
-		while(i < sequence.size()) {
-			if(digitalRead(BUTTON_PIN) == HIGH) {
-				Serial.println("Button canceled playSequence");
-				sequence.clear();
-				justPlayed = 1;
-				return;
-			}
+  while(true) {
 
-			newPin = sequence.get(i);
-			newPinNum = sequence.get(i+1);
-			
-			pixels.setPixelColor(prevPin, pixels.Color(0,0,0));
-			pixels.setPixelColor(newPin, pixels.Color(0,150,0));
-			pixels.show();
+	uint16_t *ptr = (uint16_t*)sequenceMemory;
 
-			Serial.println("newPIN playback");
-			Serial.println(newPin);
+	while(ptr != sequenceEnd) {
 
-			for(int j = 0; j < newPinNum; j++) {
-				delay(STEP_DELAY);
-			}
+	  if(digitalRead(BUTTON_PIN) == HIGH) {
 
-			prevPin = newPin;
+			// wait until button released
+			while(digitalRead(BUTTON_PIN) == HIGH) {}
 
-			i += 2;
+			Serial.println("Button stopped playSequence");
+
+			// reset sequence by setting endpointer to start of sequence
+			sequenceEnd = (uint16_t*)sequenceMemory;
+
+			mode = IDLE;
+			return;
+	  }
+
+		// get pin and duration from sequenceMemory
+	  uint8_t pin = *ptr;
+	  ptr++;
+	  uint16_t duration = *((uint16_t*)ptr)
+	  ptr+=2;
+
+	  setPinForDuration(pin, duration);
 		}
+  }
+}
+
+void recordSequence() {
+
+	// when this function is called, sequenceEnd should be at beginning of sequenceMemory array
+
+	uint8_t prevPin = 255;
+
+	while(true) {
+
+		if(digitalRead(BUTTON_PIN) == LOW) {
+			Serial.println("Recording done due to button release");
+			mode = PLAYBACK;
+			return;
+		}
+
+		if(sequenceEnd == SEQUENCE_MEMORY_SIZE) {
+			Serial.println("Memory limit reached, will no longer record");
+			continue;
+		}
+
+		uint8_t curPin = getCurrentPin();
+
+		if(curPin == prevPin) {
+			// increment previous step counter
+			sequenceEnd -= 2;
+			*((uint16_t*)sequenceEnd) += 1;
+			sequenceEnd += 2;
+		}
+
+		else {
+			// add new pin and set step counter to 1
+			*sequenceEnd = curPin;
+			sequenceEnd++;
+			*((uint16_t*)sequenceEnd) = 1;
+			sequenceEnd += 2;
+		}
+
+		prevPin = curPin;
+		delay(STEP_DELAY);
 	}
 }
 
-void recordSequence(int newPin) {
-
-	if(newPin == prevPin && sequence.size() != 0) {
-		int prevRecordedNum = sequence.get(sequence.size() - 1);
-		sequence.set(sequence.size() - 1, prevRecordedNum + 1);
-	}
-	else {
-		sequence.add(newPin);
-		sequence.add(1);
-		Serial.println("newPIN recording");
-		Serial.println(newPin);
-	}
-}
 
 void loop() {
 
-	xPosition = analogRead(X_PIN);
-	yPosition = analogRead(Y_PIN);
+	switch(mode) {
+		case IDLE:
 
-	newPin = getPinForPostition(xPosition, yPosition);
+			uint8_t pin = getCurrentPin();
+			setPinForDuration(pin, 1);
 
-	if (prevPin != newPin) {
-		pixels.setPixelColor(prevPin, pixels.Color(0,0,0));
-		pixels.setPixelColor(newPin, pixels.Color(0,150,0));
-		pixels.show();
-		Serial.println("newPin live");
-		Serial.println(newPin);
+			if(digitalRead(BUTTON_PIN) == HIGH) {
+				mode = RECORDING;
+			}
+			break;
+
+		case RECORDING:
+			recordSequence()
+			break;
+
+		case PLAYBACK:
+			playSequence();
+			break;
 	}
-	pixels.setPixelColor(newPin, pixels.Color(0,150,0));
-
-	newButtonState = digitalRead(BUTTON_PIN);
-
-	if (newButtonState == LOW && justPlayed == 1) {
-		prevButtonState = LOW;
-		justPlayed = 0;
-		Serial.println("Button LOW and justPlayed 1");
-	}
-
-	if (newButtonState == HIGH && justPlayed != 1) {
-		Serial.println("Button HIGH and justPlayed 0. Will record");
-		recordSequence(getPinForPostition(xPosition, yPosition));
-	}
-
-	if (newButtonState == LOW && prevButtonState == HIGH) {
-		Serial.println("Button LOW and prevButton HIGH. will play sequence");
-		playSequence();
-	}
-
-	prevButtonState = newButtonState;
-	prevPin = newPin;
-
-	delay(STEP_DELAY);
 }
