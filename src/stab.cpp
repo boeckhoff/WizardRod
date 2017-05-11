@@ -14,11 +14,10 @@
 
 #define POSITION_MAX 1000
 #define SEQUENCE_MEMORY_SIZE 1000
-#define PI 3.14159265
 
 // Modes
 #define IDLE 0
-#define RECORDINGING 1
+#define RECORDING 1
 #define PLAYBACK 2
 
 #define STEP_DELAY 30
@@ -37,7 +36,7 @@ Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, DATA_PIN, NEO_GRB + NEO_
 
 uint8_t mode = IDLE;
 uint8_t sequenceMemory[SEQUENCE_MEMORY_SIZE] = {0};
-uint16_t *sequenceEnd = (uint16_t*)sequenceMemory;
+uint8_t *sequenceEnd = (uint8_t*)sequenceMemory;
 
 void setup() {
   pinMode(X_PIN, INPUT);
@@ -81,17 +80,16 @@ uint8_t getCurrentPin() {
   return pin;
 }
 
-void setPinForDuration(pin, steps) {
+void setPinForDuration(uint8_t pin, uint16_t steps) {
 	turnOffAllPixels();
-  pixels.setPixelColor(prevPin, pixels.Color(0,0,0));
   pixels.setPixelColor(pin, pixels.Color(0,150,0));
   pixels.show();
 
-  Serial.println("newPIN playback");
-  Serial.println(newPin);
+  Serial.println("PIN playback");
+  Serial.println(pin);
 
-  for(int i = 0; i < steps; i++) {
-	delay(STEP_DELAY);
+  for(uint16_t i = 0; i < steps; i++) {
+		delay(STEP_DELAY);
   }
 }
 
@@ -99,7 +97,7 @@ void playSequence() {
 
   while(true) {
 
-	uint16_t *ptr = (uint16_t*)sequenceMemory;
+	uint8_t *ptr = (uint8_t*)sequenceMemory;
 
 	while(ptr != sequenceEnd) {
 
@@ -111,7 +109,7 @@ void playSequence() {
 			Serial.println("Button stopped playSequence");
 
 			// reset sequence by setting endpointer to start of sequence
-			sequenceEnd = (uint16_t*)sequenceMemory;
+			sequenceEnd = (uint8_t*)sequenceMemory;
 
 			mode = IDLE;
 			return;
@@ -120,7 +118,7 @@ void playSequence() {
 		// get pin and duration from sequenceMemory
 	  uint8_t pin = *ptr;
 	  ptr++;
-	  uint16_t duration = *((uint16_t*)ptr)
+	  uint16_t duration = *((uint16_t*)ptr);
 	  ptr+=2;
 
 	  setPinForDuration(pin, duration);
@@ -142,7 +140,7 @@ void recordSequence() {
 			return;
 		}
 
-		if(sequenceEnd == SEQUENCE_MEMORY_SIZE) {
+		if((sequenceEnd - sequenceMemory) == SEQUENCE_MEMORY_SIZE) {
 			Serial.println("Memory limit reached, will no longer record");
 			continue;
 		}
@@ -173,9 +171,10 @@ void recordSequence() {
 void loop() {
 
 	switch(mode) {
-		case IDLE:
 
-			uint8_t pin = getCurrentPin();
+		case IDLE:
+			uint8_t pin;
+			pin = getCurrentPin();
 			setPinForDuration(pin, 1);
 
 			if(digitalRead(BUTTON_PIN) == HIGH) {
@@ -184,7 +183,7 @@ void loop() {
 			break;
 
 		case RECORDING:
-			recordSequence()
+			recordSequence();
 			break;
 
 		case PLAYBACK:
