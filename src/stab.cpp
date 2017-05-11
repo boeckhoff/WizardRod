@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <Adafruit_NeoPixel.h>
 #ifdef __AVR__
-	#include <avr/power.h>
+#include <avr/power.h>
 #endif
 
 // Pins
@@ -20,6 +20,7 @@
 #define RECORDING 1
 #define PLAYBACK 2
 
+// Parameters
 #define STEP_DELAY 30
 #define NUMPIXELS  50
 
@@ -27,23 +28,27 @@
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 /*
-   sequenceMemory
+	 sequenceMemory looks as follows:
 
-     1 byte             2 bytes(unsigned int)
- | pin number (0-255) | time duration of pin | ...
+	 1 byte             2 bytes(unsigned int)
+| pin number (0-255) | time duration of pin | ...
 
 */
 
 uint8_t mode = IDLE;
+
+// Allocate memory
 uint8_t sequenceMemory[SEQUENCE_MEMORY_SIZE] = {0};
-uint8_t *sequenceEnd = (uint8_t*)sequenceMemory;
+
+// Initialize emtpy sequence
+uint8_t *sequenceEnd = sequenceMemory;
 
 void setup() {
-  pinMode(X_PIN, INPUT);
-  pinMode(Y_PIN, INPUT);
-  pinMode(BUTTON_PIN, INPUT);
-  pixels.begin();
-  Serial.begin(9600);
+	pinMode(X_PIN, INPUT);
+	pinMode(Y_PIN, INPUT);
+	pinMode(BUTTON_PIN, INPUT);
+	pixels.begin();
+	Serial.begin(9600);
 }
 
 void turnOffAllPixels() {
@@ -54,76 +59,76 @@ void turnOffAllPixels() {
 
 uint8_t getCurrentPin() {
 
-  int xPosition = analogRead(X_PIN) - 512;
-  int yPosition = analogRead(Y_PIN) - 512;
+	int xPosition = analogRead(X_PIN) - 512;
+	int yPosition = analogRead(Y_PIN) - 512;
 
-  float param = (float)xPosition/(float)yPosition;
-  float rad = atan(param);
-  float deg = rad * (180 / PI);
+	float param = (float)xPosition/(float)yPosition;
+	float rad = atan(param);
+	float deg = rad * (180 / PI);
 
-  /*
-	 if(yPosition > 0) {
-	 at = 90 - at;
-	 }
-	 if(xPosition < 0 && yPosition < 0) {
-	 at = 270 - at;
-	 }
-	 if(xPosition > 0 && yPosition < 0) {
-	 at = 270 - at;
-	 }
-	 */
-  float segment = 360.0/(float)NUMPIXELS;
+	/*
+		 if(yPosition > 0) {
+		 at = 90 - at;
+		 }
+		 if(xPosition < 0 && yPosition < 0) {
+		 at = 270 - at;
+		 }
+		 if(xPosition > 0 && yPosition < 0) {
+		 at = 270 - at;
+		 }
+		 */
+	float segment = 360.0/(float)NUMPIXELS;
 
-  uint8_t pin = (int)deg/segment;
-  //if(pin != prevPin)
-  //ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d AtanOrig %f AtanAdj %f Pin %d", xOrig, yOrig, xPosition, yPosition, atOrig, at, pin);
-  return pin;
+	uint8_t pin = (uint8_t)(deg/segment);
+	//if(pin != prevPin)
+	//ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d AtanOrig %f AtanAdj %f Pin %d", xOrig, yOrig, xPosition, yPosition, atOrig, at, pin);
+	return pin;
 }
 
 void setPinForDuration(uint8_t pin, uint16_t steps) {
 	turnOffAllPixels();
-  pixels.setPixelColor(pin, pixels.Color(0,150,0));
-  pixels.show();
+	pixels.setPixelColor(pin, pixels.Color(0,150,0));
+	pixels.show();
 
-  Serial.println("PIN playback");
-  Serial.println(pin);
+	Serial.println("PIN playback");
+	Serial.println(pin);
 
-  for(uint16_t i = 0; i < steps; i++) {
+	for(uint16_t i = 0; i < steps; i++) {
 		delay(STEP_DELAY);
-  }
+	}
 }
 
 void playSequence() {
 
-  while(true) {
+	while(true) {
 
-	uint8_t *ptr = (uint8_t*)sequenceMemory;
+		uint8_t *ptr = sequenceMemory;
 
-	while(ptr != sequenceEnd) {
+		while(ptr != sequenceEnd) {
 
-	  if(digitalRead(BUTTON_PIN) == HIGH) {
+			if(digitalRead(BUTTON_PIN) == HIGH) {
 
-			// wait until button released
-			while(digitalRead(BUTTON_PIN) == HIGH) {}
+				// wait until button released
+				while(digitalRead(BUTTON_PIN) == HIGH) {}
 
-			Serial.println("Button stopped playSequence");
+				Serial.println("Button stopped playSequence");
 
-			// reset sequence by setting endpointer to start of sequence
-			sequenceEnd = (uint8_t*)sequenceMemory;
+				// reset sequence by setting endpointer to start of sequence
+				sequenceEnd = sequenceMemory;
 
-			mode = IDLE;
-			return;
-	  }
+				mode = IDLE;
+				return;
+			}
 
-		// get pin and duration from sequenceMemory
-	  uint8_t pin = *ptr;
-	  ptr++;
-	  uint16_t duration = *((uint16_t*)ptr);
-	  ptr+=2;
+			// get pin and duration from sequenceMemory
+			uint8_t pin = *ptr;
+			ptr++;
+			uint16_t duration = *((uint16_t*)ptr);
+			ptr+=2;
 
-	  setPinForDuration(pin, duration);
+			setPinForDuration(pin, duration);
 		}
-  }
+	}
 }
 
 void recordSequence() {
