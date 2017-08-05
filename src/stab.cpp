@@ -28,10 +28,10 @@
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 /*
-	 sequenceMemory looks as follows:
+   sequenceMemory looks as follows:
 
-	 1 byte             2 bytes(unsigned int)
-| pin number (0-255) | time duration of pin | ...
+   1 byte           2 bytes(unsigned int)
+   | pin number (0-255) | time duration of pin | ...
 
 */
 
@@ -45,18 +45,14 @@ uint8_t brightnessMap[NUMPIXELS];
 // Initialize emtpy sequence
 uint8_t *sequenceEnd = sequenceMemory;
 
+uint8_t BrightnessMode = 1;
+
 void setup() {
 	pinMode(X_PIN, INPUT);
 	pinMode(Y_PIN, INPUT);
 	pinMode(BUTTON_PIN, INPUT);
 	pixels.begin();
 	Serial.begin(9600);
-}
-
-void turnOffAllPixels() {
-	for(int i = 0; i < NUMPIXELS; ++i) {
-		pixels.setPixelColor(i, pixels.Color(0,0,0));
-	}
 }
 
 uint8_t getCurrentPin() {
@@ -66,21 +62,19 @@ uint8_t getCurrentPin() {
 
 	float param = (float)xPosition/(float)yPosition;
 	float rad = atan(param);
-	float deg = rad * (180 / PI);
+	float deg = rad * (180.0 / PI);
 
+	/*
 	if(yPosition > 0) {
 		deg = 90 - deg;
 	}
-	if(xPosition < 0 && yPosition < 0) {
+	if(yPosition < 0) {
 		deg = 270 - deg;
 	}
-	if(xPosition > 0 && yPosition < 0) {
-		deg = 270 - deg;
-	}
-		
+	*/
+
 	float segment = 360.0/(float)NUMPIXELS;
-	uint8_t pin = (uint8_t)(deg/segment);
-	//if(pin != prevPin)
+	uint8_t pin = (uint8_t)(round(deg/segment));
 	//ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d AtanOrig %f AtanAdj %f Pin %d", xOrig, yOrig, xPosition, yPosition, atOrig, at, pin);
 	return pin;
 }
@@ -109,13 +103,23 @@ void setColorMapBasedOnPin(uint8_t pin) {
 }
 
 void setBrightnessMapBasedOnPin(uint8_t pin) {
-	for(uint8_t i=0; i<NUMPIXELS; ++i) {
-		if(i%10 == pin%10) {
-			brightnessMap[i] = 150;
-		}
-		else {
+	switch(BrightnessMode) {
+		case 0:
+		  for(uint8_t i=0; i<NUMPIXELS; ++i) {
+			  if(i%10 == pin%10) {
+				  brightnessMap[i] = 200;
+			  }
+			  else {
+				  brightnessMap[i] = 0;
+			  }
+		  }
+		  break;
+		case 1:
+		  for(uint8_t i=0; i<NUMPIXELS; ++i) {
 			brightnessMap[i] = 0;
-		}
+		  }
+		  brightnessMap[pin] = 200;
+		  break;
 	}
 }
 
@@ -125,10 +129,9 @@ void setPinForDuration(uint8_t pin, uint16_t steps) {
 
 	for(int i=0; i<NUMPIXELS; ++i) {
 		pixels.setPixelColor(i, pixels.Color(colorMap[i][0]*brightnessMap[i],
-											 colorMap[i][1]*brightnessMap[i],
-											 colorMap[i][1]*brightnessMap[i]));
+					colorMap[i][1]*brightnessMap[i],
+					colorMap[i][1]*brightnessMap[i]));
 	}
-	//pixels.setPixelColor(pin, pixels.Color(0,150,0));
 	pixels.show();
 
 	Serial.println("PIN playback");
@@ -174,8 +177,6 @@ void playSequence() {
 
 void recordSequence() {
 
-	// when this function is called, sequenceEnd should be at beginning of sequenceMemory array
-
 	uint8_t prevPin = 255;
 
 	while(true) {
@@ -208,7 +209,6 @@ void recordSequence() {
 		}
 
 		prevPin = curPin;
-		delay(STEP_DELAY);
 	}
 }
 
