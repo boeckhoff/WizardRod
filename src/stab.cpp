@@ -83,7 +83,8 @@ int ardprintf(char *str, ...) //Variadic Function
 #define X_PIN A3
 #define Y_PIN A5
 #define DATA_PIN 5
-#define BUTTON_PIN 9
+#define REC_BUTTON_PIN 9
+#define MODE_BUTTON_PIN 3
 
 #define POSITION_MAX 1000
 #define SEQUENCE_MEMORY_SIZE 1000
@@ -93,8 +94,11 @@ int ardprintf(char *str, ...) //Variadic Function
 #define RECORDING 1
 #define PLAYBACK 2
 
+#define maxBrightnessMode 3
+#define maxColorMode 1
+
 // Parameters
-#define STEP_DELAY 5
+#define STEP_DELAY 20
 #define NUMPIXELS  50
 
 // Setup Led Strip
@@ -118,6 +122,9 @@ unsigned long measureEnd;
 
 uint8_t mode = IDLE;
 
+uint8_t prevModeButtonStatus = LOW;
+uint8_t modeButtonStatus = LOW;
+
 // Allocate memory
 uint8_t sequenceMemory[SEQUENCE_MEMORY_SIZE] = {0};
 uint8_t colorMap[NUMPIXELS][3];
@@ -126,13 +133,21 @@ uint8_t brightnessMap[NUMPIXELS];
 // Initialize emtpy sequence
 uint8_t *sequenceEnd = sequenceMemory;
 
-uint8_t brightnessMode = 2;
+uint8_t brightnessMode = 0;
 uint8_t colorMode = 0;
+
+int xDefPos;
+int yDefPos;
 
 void setup() {
 	pinMode(X_PIN, INPUT);
 	pinMode(Y_PIN, INPUT);
-	pinMode(BUTTON_PIN, INPUT);
+	pinMode(REC_BUTTON_PIN, INPUT);
+	pinMode(MODE_BUTTON_PIN, INPUT_PULLUP);
+
+	xDefPos = analogRead(X_PIN);
+	yDefPos = analogRead(Y_PIN);
+
 	pixels.begin();
 	Serial.begin(9600);
 }
@@ -142,33 +157,56 @@ uint8_t getCurrentPin() {
 	int xOrig = analogRead(X_PIN);
 	int yOrig = analogRead(Y_PIN);
 
-	int xPosition = xOrig - 420;
-	int yPosition = yOrig - 420;
+	int xAdj = xOrig - xDefPos;
+	int yAdj = yOrig - yDefPos;
 
-	int diff = abs(xPosition) + abs(yPosition);
-
-	if(diff < 100) {
+	int diff = abs(xAdj) + abs(yAdj);
+	
+	if(diff < 20) {
 		//Serial.println("diff below threshold");
 		return INT8_MAX;
 	}
 
-	xPosition = xPosition;
-	yPosition = -yPosition;
+	float xSquare = (xOrig - xDefPos)/425.0;
+	float ySquare = (yOrig - yDefPos)/425.0;
 
-	float param = (float)xPosition/(float)yPosition;
+	ySquare = -ySquare;
+
+	if(xSquare > 1.0) {
+		xSquare = 1.0;
+	}
+
+	if(xSquare < -1.0) {
+		xSquare = -1.0;
+	}
+
+	if(ySquare > 1.0) {
+		ySquare = 1.0;
+	}
+
+	if(ySquare < -1.0) {
+		ySquare = -1.0;
+	}
+
+	//ySquare = -ySquare;
+
+	float xCircle = xSquare * sqrt(1.0 - 0.5*ySquare*ySquare);
+	float yCircle = ySquare * sqrt(1.0 - 0.5*xSquare*xSquare);
+
+	float param = (float)xCircle/(float)yCircle;
 	float rad = atan(param);
 	float deg = rad * (180.0 / PI);
 
-	if(yPosition > 0) {
+	if(yCircle > 0.01) {
 		deg = 90 - deg;
 	}
-	if(yPosition < 0) {
+	if(yCircle < -0.01) {
 		deg = 270 - deg;
 	}
 
 	float segment = 360.0/(float)NUMPIXELS;
 	uint8_t pin = (((uint8_t)(round(deg/segment))+3*(NUMPIXELS/4)+1) % NUMPIXELS);
-	//ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d diff %d degree %f segmentWidth %f Pin %d", xOrig, yOrig, xPosition, yPosition, diff, deg, segment, pin);
+	ardprintf("XOrig %d YOrig %d XAdj %d yAdj %d XSquare %f YSquare %f XCircle %f YCircle %f diff %d degree %f segmentWidth %f Pin %d", xOrig, yOrig, (xOrig - xDefPos), (yOrig - yDefPos), xSquare, ySquare, xCircle, yCircle, diff, deg, segment, pin);
 
 	return pin;
 }
@@ -177,6 +215,7 @@ void setColorMapBasedOnPin(uint8_t pin) {
 
 	switch(colorMode) {
 		case 0:
+			//red
 			for(uint8_t i=0; i<NUMPIXELS; ++i) {
 				colorMap[i][0] = 1;
 				colorMap[i][1] = 0;
@@ -184,6 +223,7 @@ void setColorMapBasedOnPin(uint8_t pin) {
 			}
 			break;
 		case 1:
+			//red green blue in succession
 			for(uint8_t i=0; i<NUMPIXELS; ++i) {
 				uint8_t diff = pin%3;
 				switch(diff) {
@@ -205,6 +245,7 @@ void setColorMapBasedOnPin(uint8_t pin) {
 				}
 			}
 			break;
+		//adjust maxColorMode when adding modes
 	}
 }
 
@@ -214,6 +255,64 @@ uint8_t distanceToPin(uint8_t first, uint8_t second) {
 			abs(second - first));
 }
 
+void checkModeButton() {
+	modeButtonStatus = digitalRead(MODE_BUTTON_PIN);
+
+	if(modeButtonStatus == LOW && prevModeButtonStatus == HIGH) {
+		prevModeButtonStatus = LOW;
+		uint8_t curPin = getCurrentPin();
+
+		Serial.println("Current Pin");
+		Serial.println(getCurrentPin());
+
+		if(curPin >= 33 && curPin <= 39) { 
+			// right - next brightness mode
+
+			if(brightnessMode == maxBrightnessMode) {
+				brightnessMode = 0;
+			}
+			else {
+				brightnessMode += 1;
+			}
+		}
+		if(curPin >= 9 && curPin <= 14) { 
+			// left - prev brightness mode
+
+			if(brightnessMode == 0) {
+				brightnessMode = maxBrightnessMode;
+			}
+			else {
+				brightnessMode -= 1;
+			}
+		}
+		if(curPin >= 22 && curPin <= 27) { 
+			// up - next color mode
+
+			if(colorMode == maxColorMode) {
+				colorMode = 0;
+			}
+			else {
+				colorMode += 1;
+			}
+		}
+		if(curPin >= 47 && curPin <= NUMPIXELS || curPin >= 0 && curPin <= 2) { 
+			// down - prev color mode
+
+			if(colorMode == 0) {
+				colorMode = maxColorMode;
+			}
+			else {
+				colorMode -= 1;
+			}
+		}
+		return;
+	}
+
+	if(modeButtonStatus = HIGH) {
+		prevModeButtonStatus = HIGH;
+		return;
+	}
+}
 
 void setBrightnessMapBasedOnPin(uint8_t pin) {
 	if(pin == INT8_MAX) {
@@ -224,9 +323,9 @@ void setBrightnessMapBasedOnPin(uint8_t pin) {
 	}
 	switch(brightnessMode) {
 		case 0:
-			//one led at pin
+			//one led full
 			for(uint8_t i=0; i<NUMPIXELS; ++i) {
-				if(i%10 == pin%10) {
+				if(i == pin) {
 					brightnessMap[i] = 250;
 				}
 				else {
@@ -244,6 +343,7 @@ void setBrightnessMapBasedOnPin(uint8_t pin) {
 			}
 			break;
 		case 2:
+			//Decreasing brightness across circle
 			for(uint8_t i=0; i<NUMPIXELS; ++i) {
 				uint8_t d = distanceToPin(i, pin);
 				uint8_t val = (uint8_t)(((float)d/(float)NUMPIXELS)*500.0);
@@ -251,6 +351,18 @@ void setBrightnessMapBasedOnPin(uint8_t pin) {
 				brightnessMap[i] = val;//(uint8_t)(((float)d/(float)NUMPIXELS)*250.0);
 			}
 			break;
+		case 3:
+			//every 10 leds full
+			for(uint8_t i=0; i<NUMPIXELS; ++i) {
+				if(i%10 == pin%10) {
+					brightnessMap[i] = 250;
+				}
+				else {
+					brightnessMap[i] = 0;
+				}
+			}
+			break;
+		//adjust maxBrightnessMode when adding modes
 	}
 }
 
@@ -280,10 +392,12 @@ void playSequence() {
 
 		while(ptr != sequenceEnd) {
 
-			if(digitalRead(BUTTON_PIN) == HIGH) {
+			checkModeButton();
+
+			if(digitalRead(REC_BUTTON_PIN) == HIGH) {
 
 				// wait until button released
-				while(digitalRead(BUTTON_PIN) == HIGH) {}
+				while(digitalRead(REC_BUTTON_PIN) == HIGH) {}
 
 				Serial.println("Button stopped playSequence");
 
@@ -325,7 +439,7 @@ void recordSequence() {
 	before = millis();
 	while(true) {
 
-		if(digitalRead(BUTTON_PIN) == LOW) {
+		if(digitalRead(REC_BUTTON_PIN) == LOW) {
 			Serial.println("Recording done due to button release");
 			mode = PLAYBACK;
 			after = millis();
@@ -367,7 +481,9 @@ void loop() {
 			pin = getCurrentPin();
 			setPinOneStep(pin);
 
-			if(digitalRead(BUTTON_PIN) == HIGH) {
+			checkModeButton();
+
+			if(digitalRead(REC_BUTTON_PIN) == HIGH) {
 				mode = RECORDING;
 			}
 			break;
