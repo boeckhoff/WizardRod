@@ -2,6 +2,8 @@
 #include <math.h>
 #include <stdint.h>
 #include <Adafruit_NeoPixel.h>
+#include "stab.h"
+
 #ifdef __AVR__
 #include <avr/power.h>
 #endif
@@ -32,10 +34,10 @@
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 /*
-	 sequenceMemory looks as follows:
+   sequenceMemory looks as follows:
 
-	 1 byte           2 bytes(unsigned int)
-	 | pin number (0-255) | time duration of pin | ...
+   		1 byte           2 bytes(unsigned int)
+   | pin number (0-255) | time duration of pin | ...
 
 */
 unsigned long before;
@@ -65,33 +67,6 @@ int colorMode = 0;
 
 int xDefPos;
 int yDefPos;
-
-void setup() {
-	pinMode(X_PIN, INPUT);
-	pinMode(Y_PIN, INPUT);
-	pinMode(REC_BUTTON_PIN, INPUT);
-	pinMode(MODE_BUTTON_PIN, INPUT_PULLUP);
-
-	xDefPos = analogRead(X_PIN);
-	yDefPos = analogRead(Y_PIN);
-
-	pixels.begin();
-	Serial.begin(9600);
-}
-
-struct RGB
-{
-	unsigned char R;
-	unsigned char G;
-	unsigned char B;
-};
-
-struct HSL
-{
-	int H;
-	float S;
-	float L;
-};
 
 float HueToRGB(float v1, float v2, float vH)
 {
@@ -136,6 +111,19 @@ struct RGB HSLToRGB(struct HSL hsl) {
 	return rgb;
 }
 
+void setup() {
+	pinMode(X_PIN, INPUT);
+	pinMode(Y_PIN, INPUT);
+	pinMode(REC_BUTTON_PIN, INPUT);
+	pinMode(MODE_BUTTON_PIN, INPUT_PULLUP);
+
+	xDefPos = analogRead(X_PIN);
+	yDefPos = analogRead(Y_PIN);
+
+	pixels.begin();
+	Serial.begin(9600);
+}
+
 uint8_t getCurrentPin(bool checkTreshold) {
 
 	int xOrig = analogRead(X_PIN);
@@ -145,7 +133,7 @@ uint8_t getCurrentPin(bool checkTreshold) {
 	int yPosition = yOrig - 420;
 
 	int diff = abs(xOrig - xDefPos) + abs(yOrig - yDefPos);
-	
+
 	if(diff < 200 && checkTreshold) {
 		return INT8_MAX;
 	}
@@ -166,7 +154,7 @@ uint8_t getCurrentPin(bool checkTreshold) {
 
 	float segment = 360.0/(float)NUMPIXELS;
 	uint8_t pin = (((uint8_t)(round(deg/segment))+3*(NUMPIXELS/4)+1) % NUMPIXELS);
-	
+
 	//ardprintf("XPos %d YPos %d XPosAdj %d YPosAdj %d diff %d degree %f segmentWidth %f Pin %d", xOrig, yOrig, xPosition, yPosition, diff, deg, segment, pin);
 
 	return pin;
@@ -225,7 +213,7 @@ void setColorMapBasedOnPin(uint8_t pin) {
 			}
 			break;
 		case 2:
-			
+
 			// HSL color ring
 			for(uint8_t i=0; i<NUMPIXELS; ++i) {
 				float H = ((float)i/(NUMPIXELS-1))*360.0;
@@ -309,7 +297,7 @@ void setColorMapBasedOnPin(uint8_t pin) {
 				}
 			}
 			break;
-		//adjust maxColorMode when adding modes and don't forget break..
+			//adjust maxColorMode when adding modes
 	}
 }
 
@@ -349,12 +337,12 @@ void setBrightnessMapBasedOnPin(uint8_t pin) {
 		case 2:
 			// 3 heaps of brightness
 			for(uint8_t i=0; i<NUMPIXELS; ++i) {
-				
+
 				uint8_t dis = min(min(
 							distanceToPin(i, pin), 
 							distanceToPin(i, pinWithOffset(pin, NUMPIXELS/3))),
-							distanceToPin(i, pinWithOffset(pin, 2*(NUMPIXELS/3))));
-							
+						distanceToPin(i, pinWithOffset(pin, 2*(NUMPIXELS/3))));
+
 				uint16_t penalty = dis*50;
 
 				if(penalty > 250) {
@@ -386,7 +374,7 @@ void setBrightnessMapBasedOnPin(uint8_t pin) {
 			}
 			break;
 
-		//adjust maxBrightnessMode when adding modes
+			//adjust maxBrightnessMode when adding modes
 	}
 }
 
@@ -395,7 +383,6 @@ void switchMode(uint8_t curPin) {
 
 	if(curPin >= 31 && curPin <= 41) { 
 		// right - next brightness mode
-		Serial.println("right - next brightness mode");
 
 		if(brightnessMode == maxBrightnessMode) {
 			brightnessMode = 0;
@@ -406,7 +393,6 @@ void switchMode(uint8_t curPin) {
 	}
 	if(curPin >= 7 && curPin <= 16) { 
 		// left - prev brightness mode
-		Serial.println("left - prev brightness mode");
 
 		if(brightnessMode == 0) {
 			brightnessMode = maxBrightnessMode;
@@ -417,7 +403,6 @@ void switchMode(uint8_t curPin) {
 	}
 	if(curPin >= 20 && curPin <= 29) { 
 		// up - next color mode
-		Serial.println("up - next color mode");
 
 		if(colorMode == maxColorMode) {
 			colorMode = 0;
@@ -428,7 +413,6 @@ void switchMode(uint8_t curPin) {
 	}
 	if((curPin >= 45 && curPin <= NUMPIXELS) || (curPin >= 0 && curPin <= 4)) { 
 		// down - prev color mode
-		Serial.println("down - prev color mode");
 
 		if(colorMode == 0) {
 			colorMode = maxColorMode;
@@ -457,7 +441,6 @@ void checkModeButton() {
 
 
 void setPinOneStep(uint8_t pin) {
-	//ardprintf("Setting pin %d for duration %d", pin, steps);
 	setColorMapBasedOnPin(pin);
 	setBrightnessMapBasedOnPin(pin);
 
@@ -504,18 +487,20 @@ void playSequence() {
 			for(uint16_t i = 0; i < steps; ++i) {
 				setPinOneStep(pin);
 			}
-
-			//ardprintf("diffPlay %d duration %d", diff ,duration);
 		}
+
+		/* 
+		 * Playback is faster than recording because of
+		 * less SystemIO (writing away the bytes takes time).
+		 * Because of this, we record how long the recording takes
+		 * and then wait the remainder of time after we are done
+		 * with Playback. This is not really noticable but prevents
+		 * drifting off when recording to a continous beat
+		 */
+
 		after = millis();
 		diffPlay = after - before;
-		Serial.println("delaying for");
-		Serial.println(diffRec - diffPlay);
 		delay(diffRec - diffPlay);
-		Serial.println("diffPlay");
-		Serial.println(diffPlay);
-		Serial.println("diffRec");
-		Serial.println(diffRec);
 	}
 }
 
